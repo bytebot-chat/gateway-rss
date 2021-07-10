@@ -1,0 +1,14 @@
+version: "3.8"
+services:
+  bytebot:
+    network_mode: "host" #TODO allows access to localhost
+    build: .
+    environment:
+      BYTEBOT_REDIS: "redis:6379"
+      BYTEBOT_INBOUND: ${BYTEBOT_INBOUND:-irc-inbound}
+      BYTEBOT_OUTBOUND: ${BYTEBOT_OUTBOUND:-irc}
+      BYTEBOT_FEED: "http://127.0.0.1:8000/flux.xml"
+  redis:
+    image: redis:6.2.3
+    ports:
+      - "127.0.0.1:6379:6379"

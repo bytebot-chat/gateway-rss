@@ -28,3 +28,10 @@ func (m *Message) Unmarshal(b []byte) error {
 	}
 	return nil
 }
+
+func MessageFromItem(item *rss.Item) *Message {
+	msg := new(Message)
+	msg.Item = item
+
+	return msg
+}
