@@ -3,12 +3,14 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"time"
 
 	"github.com/SlyMarbo/rss"
 	"github.com/bytebot-chat/gateway-rss/model"
 	"github.com/go-redis/redis/v8"
+	"github.com/rs/zerolog/log"
 	"github.com/satori/go.uuid"
 )
 
@@ -16,20 +18,45 @@ var (
 	ctx context.Context
 	rdb *redis.Client
 
-	delay time.Duration
+	delay     time.Duration
+	feedURL   string
+	redisAddr string
+	inbound   string
+	// I don't think we need to read user messages for a rss gateway?
 
-	feedURL   = "http://localhost:8000/flux.xml"
-	redisAddr = "127.0.0.1:6379"
-	inbound   = "rss-inbound"
-	// I don't think we need an outbound queue for a rss gateway?
+	err error
 )
 
-func main() {
-	rdb = rdbConnect("127.0.0.1:6379")
-	ctx = context.Background()
+func init() {
+	feedFlag := flag.String("feed", "https://nitter.42l.fr/SwiftOnSecurity/rss", "The rss feed to follow")
+	redisFlag := flag.String("redis", "redis:6379", "The redis server's address")
+	inboundFlag := flag.String("inbound", "rss-inbound", "The inbound's queue (where the rss items are written)'s name")
+	delayFlag := flag.String("delay", "60m", "The delay at which the feed is updated")
 
-	// hardcoded TODO
-	delay = 3 //TODO
+	flag.Parse()
+	// TODO ENV
+	feedURL = *feedFlag
+	redisAddr = *redisFlag
+	inbound = *inboundFlag
+	delay, err = time.ParseDuration(*delayFlag)
+	if err != nil {
+		log.Warn().
+			Err(err).
+			Str("delay", *delayFlag).
+			Msg("Couldn't parse delay, see https://golang.org/pkg/time/#ParseDuration. Using the default 60m")
+	}
+}
+
+func main() {
+	log.Info().
+		Str("feed address", feedURL).
+		Str("redis address", redisAddr).
+		Str("inbound queue", inbound).
+		Dur("update interval", delay).
+		Msg("Starting up")
+
+	rdb = rdbConnect(redisAddr)
+	ctx = context.Background()
 
 	feed, err := rss.Fetch(feedURL)
 	if err != nil {
@@ -46,12 +73,10 @@ func main() {
 
 		time.Sleep(time.Second * delay)
 	}
-	//u2 := uuid.NewV4()
-	//fmt.Printf("%s\n", u2)
 }
 
 func pushNewItemsToQueue(feed *rss.Feed) error {
-	// This is awfully inefficient
+	// FIXME This is awfully inefficient
 	for _, i := range feed.Items {
 		if !i.Read {
 			msg := model.MessageFromItem(i)
@@ -62,35 +87,8 @@ func pushNewItemsToQueue(feed *rss.Feed) error {
 			stringMsg, _ := json.Marshal(msg)
 			rdb.Publish(ctx, inbound, stringMsg)
 
-			// TODO publish to pubsub
 			i.Read = true
 		}
 	}
 	return nil
-}
-
-// Utils
-func printFeedNewItems(feed *rss.Feed) {
-	for _, i := range feed.Items {
-		if !i.Read {
-			printItem(i)
-			i.Read = true
-		}
-	}
-}
-
-func printItem(item *rss.Item) {
-	//fmt.Printf("%s: %s (%s)\n", item.Title, item.Summary, item.Link)
-	m, _ := json.Marshal(item)
-	fmt.Println(string(m))
-}
-
-func rdbConnect(addr string) *redis.Client {
-	rdb := redis.NewClient(&redis.Options{
-		Addr:     addr,
-		Password: "", // no password set
-		DB:       0,  // use default DB
-	})
-
-	return rdb
 }

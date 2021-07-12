@@ -1,7 +1,7 @@
 version: "3.8"
 services:
   bytebot:
-    network_mode: "host" #TODO allows access to localhost
+          #network_mode: "host" #TODO allows access to localhost
     build: .
     environment:
       BYTEBOT_REDIS: "redis:6379"
