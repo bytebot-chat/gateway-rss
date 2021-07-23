@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"strings"
 	"time"
 
 	"github.com/bytebot-chat/gateway-rss/model"
@@ -20,19 +21,19 @@ var (
 	redisAddr string
 	inbound   string
 	// I don't think we need to read user messages for a rss gateway?
+	// TODO: we do for commands and such, but this is for much later
 
 	err error
 )
 
 func init() {
-	feedFlag := flag.String("feed", "https://nitter.42l.fr/SwiftOnSecurity/rss", "The rss feed to follow")
+	feedFlag := flag.String("feed", "https://nitter.42l.fr/SwiftOnSecurity/rss", "The rss feeds to follow, coma separated")
 	redisFlag := flag.String("redis", "redis:6379", "The redis server's address")
 	inboundFlag := flag.String("inbound", "rss-inbound", "The inbound's queue (where the rss items are written)'s name")
 	delayFlag := flag.String("delay", "60m", "The delay at which the feed is updated")
 
 	flag.Parse()
 	// TODO ENV
-	feedURL = *feedFlag
 	redisAddr = *redisFlag
 	inbound = *inboundFlag
 	delay, err = time.ParseDuration(*delayFlag)
@@ -44,6 +45,16 @@ func init() {
 	}
 
 	feeds = make([]model.Feed, 0)
+
+	for _, feedURL := range strings.Split(*feedFlag, ",") {
+
+		feed, err := model.CreateFeed(feedURL)
+		if err != nil {
+			panic(err)
+		}
+
+		feeds = append(feeds, feed)
+	}
 }
 
 func main() {
@@ -56,13 +67,6 @@ func main() {
 
 	rdb = rdbConnect(redisAddr)
 	ctx = context.Background()
-
-	feed, err := model.CreateFeed(feedURL)
-	if err != nil {
-		panic(err)
-	}
-
-	feeds = append(feeds, feed)
 
 	for {
 		for _, f := range feeds {
