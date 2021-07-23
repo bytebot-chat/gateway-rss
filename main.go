@@ -2,21 +2,18 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
-	"fmt"
 	"time"
 
-	"github.com/SlyMarbo/rss"
 	"github.com/bytebot-chat/gateway-rss/model"
 	"github.com/go-redis/redis/v8"
 	"github.com/rs/zerolog/log"
-	"github.com/satori/go.uuid"
 )
 
 var (
-	ctx context.Context
-	rdb *redis.Client
+	ctx   context.Context
+	rdb   *redis.Client
+	feeds []model.Feed
 
 	delay     time.Duration
 	feedURL   string
@@ -45,6 +42,8 @@ func init() {
 			Str("delay", *delayFlag).
 			Msg("Couldn't parse delay, see https://golang.org/pkg/time/#ParseDuration. Using the default 60m")
 	}
+
+	feeds = make([]model.Feed, 0)
 }
 
 func main() {
@@ -58,37 +57,17 @@ func main() {
 	rdb = rdbConnect(redisAddr)
 	ctx = context.Background()
 
-	feed, err := rss.Fetch(feedURL)
+	feed, err := model.CreateFeed(feedURL)
 	if err != nil {
 		panic(err)
 	}
 
-	for {
-		feed.Refresh = time.Now()
-		err = feed.Update()
-		if err != nil {
-			fmt.Println(err)
-		}
-		pushNewItemsToQueue(feed)
+	feeds = append(feeds, feed)
 
+	for {
+		for _, f := range feeds {
+			go f.PushNewItemsToQueue(rdb, inbound, ctx)
+		}
 		time.Sleep(time.Second * delay)
 	}
-}
-
-func pushNewItemsToQueue(feed *rss.Feed) error {
-	// FIXME This is awfully inefficient
-	for _, i := range feed.Items {
-		if !i.Read {
-			msg := model.MessageFromItem(i)
-			msg.Metadata.ID = uuid.Must(uuid.NewV4(), *new(error))
-			msg.Metadata.Source = feedURL
-			msg.Metadata.Dest = "gateway-rss"
-
-			stringMsg, _ := json.Marshal(msg)
-			rdb.Publish(ctx, inbound, stringMsg)
-
-			i.Read = true
-		}
-	}
-	return nil
 }
